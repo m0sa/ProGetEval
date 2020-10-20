@@ -1,0 +1,58 @@
+version: '3.8'
+services:
+  db:
+    image: mcr.microsoft.com/mssql/server:2019-latest
+    container_name: proget-sql
+    restart: unless-stopped
+    ports:
+      - "1433:1433"
+    networks:
+      proget-network:
+        aliases:
+          - proget-sql
+    env_file:
+      - .env
+  db-setup:
+    image: mcr.microsoft.com/mssql/server:2019-latest
+    container_name: proget-sql-setup
+    depends_on:
+      - db
+    env_file:
+      - .env
+    command: bash -c "
+        sleep 5s &&
+        /opt/mssql-tools/bin/sqlcmd -S proget-sql -U SA -P ${MSSQL_SA_PASSWORD} -Q 'IF NOT EXISTS (SELECT * FROM sys.databases WHERE name = 'ProGet') BEGIN CREATE DATABASE [ProGet] COLLATE SQL_Latin1_General_CP1_CI_AS END'
+      "
+    networks:
+      proget-network:
+        aliases:
+          - proget-db-setup
+
+# Optional if using persisted storage locations (https://docs.microsoft.com/en-us/sql/linux/sql-server-linux-docker-container-configure?view=sql-server-ver15&pivots=cs1-bash#persist)
+#    volumes:
+#      - ./proget-sql/data:/var/opt/mssql/data
+#      - ./proget-sql/log:/var/opt/mssql/log
+#      - ./proget-sql/secrets:/var/opt/mssql/secrets
+  pg:
+    image: proget.inedo.com/productimages/inedo/proget:5.3.13
+    container_name: proget
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8088:80"
+    environment:
+      SQL_CONNECTION_STRING: 'Data Source=proget-sql; Initial Catalog=ProGet; User ID=sa; Password=${MSSQL_SA_PASSWORD}'
+    networks:
+      proget-network:
+        aliases:
+          - proget
+# Update this path to persist your proget packages storage
+# volumes:
+#   - ./proget-packages:/var/proget/packages
+    depends_on:
+      - db
+      - db-setup
+    env_file:
+      - .env
+networks:
+  proget-network:
+    name: proget-network
